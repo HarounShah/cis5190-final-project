@@ -11,7 +11,9 @@ from sklearn.model_selection import train_test_split
 from urllib.parse import urlparse
 from collections import Counter
 
+from final_model import Model as HybridModel
 from model_source.model_branch_hash_tfidf import Model
+from model_source.model_branch_word_char_tfidf import Model as WordCharModel
 from preprocess import clean_text, prepare_data
 
 _REPO = Path(__file__).resolve().parent
@@ -95,21 +97,53 @@ def plot_leaderboard_progression(out_dir: str) -> None:
         "TF-IDF C=8",
         "TF-IDF C=4",
         "TF-IDF CV-best",
+        "TF-IDF C=3",
+        "Hash ensemble",
+        "Word+char TF-IDF",
+        "Hybrid (final)",
     ]
-    scores = [0.7808, 0.799, 0.8008, 0.8125, 0.8042, 0.8125, 0.79]
+    scores = [0.7808, 0.799, 0.8008, 0.8125, 0.8042, 0.8125, 0.79, 0.8158, 0.813, 0.814, 0.8342]
 
-    plt.figure(figsize=(10, 4.8))
+    final_idx = len(scores) - 1
+    colors = ["#4c78a8"] * len(scores)
+    colors[final_idx] = "#2ca02c"
+
+    plt.figure(figsize=(11, 4.8))
     x = np.arange(len(labels))
-    bars = plt.bar(x, scores, color="#4c78a8")
-    plt.title("Leaderboard Accuracy Across Experiments")
+    bars = plt.bar(x, scores, color=colors)
+    plt.title("Leaderboard Accuracy Across Submissions (final hybrid in green)")
     plt.xlabel("Submission Variant")
     plt.ylabel("Leaderboard Accuracy")
-    plt.ylim(0.77, 0.82)
+    plt.ylim(0.77, 0.85)
     plt.xticks(x, labels, rotation=25, ha="right")
     for bar, score in zip(bars, scores):
         plt.text(bar.get_x() + bar.get_width() / 2, score + 0.0006, f"{score:.4f}", ha="center", va="bottom", fontsize=8)
     plt.tight_layout()
     plt.savefig(os.path.join(out_dir, "leaderboard_progression.png"), dpi=200)
+    plt.close()
+
+
+def plot_confusion_matrix_hybrid(out_dir: str, checkpoint_path: str) -> None:
+    X, y = prepare_data(str(_DATA_CSV))
+    _, X_val, _, y_val = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+
+    model = HybridModel()
+    state = torch.load(checkpoint_path, map_location="cpu")
+    model.load_state_dict(state, strict=False)
+    model.eval()
+
+    preds: List[int] = model.predict(X_val)
+    cm = confusion_matrix(y_val, preds, labels=[0, 1])
+    acc = float((np.asarray(preds) == np.asarray(y_val)).mean())
+
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["NBC (0)", "Fox (1)"])
+    fig, ax = plt.subplots(figsize=(5.5, 4.8))
+    disp.plot(cmap="Greens", ax=ax, values_format="d", colorbar=False)
+    ax.set_title(f"Validation Confusion Matrix - Final Hybrid (acc={acc:.3f})")
+    ax.set_xlabel("Predicted Label")
+    ax.set_ylabel("True Label")
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "validation_confusion_matrix_final_model.png"), dpi=200)
     plt.close()
 
 
@@ -157,14 +191,33 @@ def _build_vocab_from_full_data(texts: List[str], max_features: int = 50000, min
 
 
 def plot_top_weighted_tokens(out_dir: str, checkpoint_path: str, top_k: int = 15) -> None:
+    """Word-only weights from the hybrid's word+char branch.
+
+    The branch packs word features at indices 0..max_word_features-1 and exposes
+    a word_hashes/word_indices lookup; we recover the original tokens by querying
+    every distinct word from the corpus through the model.
+    """
     df = pd.read_csv(str(_DATA_CSV))
     texts = df["headline"].astype(str).map(clean_text).tolist()
-    vocab = _build_vocab_from_full_data(texts, max_features=50000, min_df=2)
 
+    model = WordCharModel()
     state = torch.load(checkpoint_path, map_location="cpu")
-    weights = state["linear.weight"].cpu().numpy().reshape(-1)
+    model.load_state_dict(state, strict=False)
+    model.eval()
 
-    token_scores = [(tok, float(weights[idx])) for tok, idx in vocab.items()]
+    weights = model.linear.weight.detach().cpu().numpy().reshape(-1)
+
+    token_set: set = set()
+    for txt in texts:
+        toks = str(txt).split()
+        token_set.update(toks)
+
+    token_scores = []
+    for tok in token_set:
+        idx = model._lookup_word_index(tok)
+        if idx is not None and idx >= 0:
+            token_scores.append((tok, float(weights[idx])))
+
     token_scores_sorted = sorted(token_scores, key=lambda t: t[1])
     top_nbc = token_scores_sorted[:top_k]            # most negative => NBC
     top_fox = token_scores_sorted[-top_k:][::-1]     # most positive => Fox
@@ -191,9 +244,9 @@ def plot_top_weighted_tokens(out_dir: str, checkpoint_path: str, top_k: int = 15
     axes[0].set_xlim(0, max_abs * 1.05)
     axes[1].set_xlim(-max_abs * 1.05, 0)
 
-    fig.suptitle("Top Weighted Tokens from Vocab TF-IDF Logistic Model")
+    fig.suptitle("Top Weighted Words from Word+Char TF-IDF Branch (used in final hybrid)")
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, "top_weighted_tokens_vocab_pt.png"), dpi=200)
+    plt.savefig(os.path.join(out_dir, "top_weighted_tokens_word_char.png"), dpi=200)
     plt.close()
 
 
@@ -242,9 +295,9 @@ def plot_top_weighted_tokens_hash(out_dir: str, checkpoint_path: str, top_k: int
     axes[0].set_xlim(0, max_abs * 1.05)
     axes[1].set_xlim(-max_abs * 1.05, 0)
 
-    fig.suptitle("Top Weighted Tokens from Hash-Based TF-IDF Logistic Model")
+    fig.suptitle("Top Weighted Tokens from Hash TF-IDF Branch (used in final hybrid)")
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, "top_weighted_tokens_tfidf_c4.png"), dpi=200)
+    plt.savefig(os.path.join(out_dir, "top_weighted_tokens_hash.png"), dpi=200)
     plt.close()
 
 
@@ -332,10 +385,10 @@ def main() -> None:
     plot_headline_lengths(df, out_dir)
     plot_c_sweep(out_dir)
     plot_leaderboard_progression(out_dir)
-    plot_confusion_matrix(out_dir, checkpoint_path=str(_CKPT_DIR / "model_tfidf_c4.pt"))
-    plot_top_weighted_tokens(out_dir, checkpoint_path=str(_CKPT_DIR / "model_vocab.pt"), top_k=15)
-    plot_top_weighted_tokens_hash(out_dir, checkpoint_path=str(_CKPT_DIR / "model_tfidf_c4.pt"), top_k=15)
-    plot_all_misclassified_headlines(out_dir, checkpoint_path=str(_CKPT_DIR / "model_tfidf_c4.pt"))
+    plot_confusion_matrix_hybrid(out_dir, checkpoint_path=str(_REPO / "final_model.pt"))
+    plot_top_weighted_tokens(out_dir, checkpoint_path=str(_CKPT_DIR / "model_vocab_char_c4.pt"), top_k=15)
+    plot_top_weighted_tokens_hash(out_dir, checkpoint_path=str(_CKPT_DIR / "model_tfidf_c3.pt"), top_k=15)
+    plot_all_misclassified_headlines(out_dir, checkpoint_path=str(_CKPT_DIR / "model_tfidf_c3.pt"))
     print(f"Saved figures to: {out_dir}")
 
 

@@ -1,0 +1,149 @@
+Applied ML Final Project Report Outline (News Source Classification)
+
+1) Title and one-line claim
+- Working title: Binary Classification of News Sources from Headlines and URLs
+- Main result claim: Best leaderboard accuracy achieved with a weighted hybrid ensemble (0.8342).
+
+2) Introduction (0.5-1 page)
+- Problem statement: predict news source (Fox vs NBC) from headline text.
+- Why it matters: source classification reflects stylistic and topical language differences.
+- Brief contribution summary:
+  - Implemented and compared two models: PyTorch MLP vs TF-IDF Logistic Regression.
+  - Added preprocessing normalization and regularization tuning.
+  - Final selected submission achieved 0.8342 leaderboard accuracy.
+
+3) Dataset and labeling
+- Data file: `url_with_headlines.csv`
+- Features: headline text (`X`)
+- Labels (`y`) derived from URL domain:
+  - `foxnews.com` -> 1
+  - `nbcnews.com` -> 0
+- Dataset size and balance:
+  - total examples: 3,805
+  - Fox: 2,000
+  - NBC: 1,805
+
+4) Preprocessing pipeline
+- Base pipeline:
+  - parse CSV, validate required columns, derive labels from domain.
+- Updated text normalization (later experiment):
+  - unicode normalization
+  - lowercase
+  - punctuation cleanup
+  - whitespace cleanup
+- Key note for report:
+  - preprocessing normalization improved TF-IDF leaderboard performance from 0.8008 to 0.8125.
+
+5) Model A: PyTorch hashed-BoW MLP
+- Implementation:
+  - file: `exp_model_mlp_hashed_bow.py`
+  - architecture: hashed bag-of-words -> Linear -> ReLU -> Dropout -> Linear
+  - training script: `exp_train_mlp_hashed_bow.py`
+- Best tuning setup:
+  - lr=3e-4, batch=64, epochs=12, hidden_dim=128, feature_dim=16,384
+- Performance summary:
+  - local eval peaks observed: 0.917740 (pre-clean), 0.934823 (post-clean)
+  - leaderboard: 0.7808 (initial), 0.799 (post-clean)
+- Interpretation:
+  - model fit training data well but underperformed TF-IDF on hidden test set.
+
+6) Model B: TF-IDF Logistic Regression (.pt-compatible)
+- Implementation:
+  - file: `model_branch_hash_tfidf.py`
+  - training script: `train_branch_hash_tfidf.py`
+  - format: IDF + LR weights exported to `.pt` state_dict
+- Regularization experiments:
+  - `C=3`: leaderboard 0.8158 (best)
+  - `C=8`: leaderboard 0.8042
+  - `C=4`: leaderboard 0.8125
+  - CV-selected `C=12` (`exp_train_hash_tfidf_cv.py`): leaderboard 0.79
+- Final selection:
+  - `model_tfidf_c3.pt` (best leaderboard accuracy: 0.8158)
+
+6.1) Model C: Weighted hybrid ensemble (.pt-compatible)
+- Implementation:
+  - files: `final_model.py`, `build_final_model_checkpoint.py`
+  - combines two diverse branches:
+    - hashed TF-IDF LR branch (`model_tfidf_c3.pt`)
+    - vocab word+char TF-IDF LR branch (`model_vocab_char_c4.pt`)
+  - weighted logit blending with tuned threshold
+- Blend parameters (best run):
+  - hash branch weight: 0.7
+  - vocab+char branch weight: 0.3
+  - decision threshold: 0.475
+- Leaderboard result:
+  - 0.8342 (new best overall)
+- Final selection:
+  - `final_model.pt` (best leaderboard accuracy: 0.8342; rebuild via build_final_model_checkpoint.py)
+
+7) Evaluation protocol and metrics
+- Internal:
+  - single stratified train/validation split (80/20) during tuning
+  - additional 5-fold CV experiment for TF-IDF `C` search
+- External:
+  - leaderboard hidden test accuracy (primary metric for model selection)
+- Important observation:
+  - very high local evaluator scores did not consistently predict leaderboard performance.
+
+8) Chronological experiment timeline
+- MLP timeline:
+  - initial run: 0.7808 leaderboard
+  - tuned + cleaned run: 0.799 leaderboard
+- TF-IDF timeline:
+  - before preprocess normalization: 0.8008
+  - after preprocess normalization: 0.8125
+  - C sweep: `C=8` -> 0.8042, `C=4` -> 0.8125, `C=3` -> 0.8158 (best)
+  - CV-selected `C=12`: 0.79
+- Hybrid ensemble timeline:
+  - equal/near-equal ensemble baseline: 0.813
+  - weighted hybrid ensemble (`0.7` hash + `0.3` vocab+char): 0.8342 (best overall)
+
+9) Accuracy summary table (to convert to LaTeX)
+- Leaderboard accuracies:
+  - MLP initial: 0.7808
+  - MLP cleaned: 0.799
+  - TF-IDF before clean: 0.8008
+  - TF-IDF after clean: 0.8125
+  - TF-IDF C=8: 0.8042
+  - TF-IDF C=4: 0.8125
+  - TF-IDF C=3: 0.8158 (best)
+  - TF-IDF CV-best (C=12): 0.79
+  - Vocab+char model (`model_vocab_char_c4.pt`): 0.814
+  - Hybrid ensemble (`final_model.pt`): 0.8342 (best overall)
+- Local evaluator accuracies:
+  - MLP tuned pre-clean: 0.917740
+  - MLP cleaned: 0.934823
+  - TF-IDF initial export: 0.983180
+  - TF-IDF cleaned C=4: 0.975033
+  - TF-IDF cleaned C=8: 0.992378
+  - TF-IDF CV-best: 0.996846
+  - Hybrid ensemble: 0.969777
+
+10) Final model for submission
+- Files:
+  - `final_model.py`
+  - `preprocess.py`
+  - `final_model.pt`
+- Final reported leaderboard score: 0.8342
+
+11) Discussion points for writing
+- Why TF-IDF outperformed MLP on hidden test set (regularization and robustness).
+- Why local eval and leaderboard diverged.
+- What worked:
+  - text normalization
+  - moderate regularization (`C=3`) for the hashed branch
+  - weighted ensembling of diverse model families (hash TF-IDF + vocab+char TF-IDF)
+- What did not transfer:
+  - CV-selected `C=12`
+  - over-optimized local metrics
+
+12) Team contributions (fill in)
+- Member 1: Haroun Shah
+- Member 2: Qianzhi (Jerry) Zhao
+- Member 3: Arvin Krishnan
+
+14) Appendix checklist
+- Hyperparameter grids
+- Additional run logs
+- Example misclassified headlines
+- Confusion matrix / class-wise breakdown

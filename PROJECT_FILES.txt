@@ -1,0 +1,46 @@
+Applied ML Final Project — what each file is for
+=================================================
+
+Layout
+------
+  checkpoints/     All trained weights (.pt) except final_model.pt (submission weights stay in repo root).
+  model_source/    Python package: branch model defs, training scripts, and experiment code.
+
+Run training from the project root (parent of model_source/), e.g.:
+  python3 -m model_source.train_branch_hash_tfidf
+  python3 -m model_source.train_branch_word_char_tfidf
+  python3 -m model_source.build_final_model_checkpoint
+
+Submission (what you turn in)
+-----------------------------
+  final_model.py          Hybrid ensemble: hash TF-IDF + word/char TF-IDF (PyTorch nn.Module).
+  preprocess.py           Reads CSV, cleans headlines, builds labels from URL domain.
+  final_model.pt          Weights for final_model.py (rebuild: python3 -m model_source.build_final_model_checkpoint).
+
+Train the two branches, then pack the hybrid (under model_source/)
+------------------------------------------------------------------
+  model_branch_hash_tfidf.py       Hashed TF-IDF + logistic branch.
+  train_branch_hash_tfidf.py       Trains → checkpoints/model_tfidf_*.pt
+
+  model_branch_word_char_tfidf.py  Word + char n-gram TF-IDF + logistic branch.
+  train_branch_word_char_tfidf.py  Trains → checkpoints/model_vocab_char_*.pt
+
+  build_final_model_checkpoint.py  Loads branch checkpoints, tunes blend + threshold → final_model.pt
+
+Utilities (repo root)
+--------------------
+  run_local_evaluation.py   Loads any model.py + preprocess + optional .pt; reports accuracy on a CSV.
+  generate_report_figures.py  Plots for the write-up (reads checkpoints/ by default).
+
+Experiments (model_source/, prefix exp_) — not required for submission
+---------------------------------------------------------------------
+  exp_model_mlp_hashed_bow.py / exp_train_mlp_hashed_bow.py
+  exp_model_vocab_only_tfidf.py / exp_train_vocab_only_tfidf.py
+  exp_model_hash_ensemble.py / exp_train_hash_ensemble.py
+  exp_train_hash_tfidf_cv.py
+  exp_model_hybrid_large_hash.py / exp_build_hybrid_large_hash.py
+
+Data
+----
+  url_with_headlines.csv   Main training/eval set used for best leaderboard numbers.
+  final_headlines.csv      Extra balanced data (retraining on it hurt leaderboard in your runs).

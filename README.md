@@ -1,4 +1,4 @@
-# CIS 5190 Final Project — News Source Classification
+# CIS 5190 Final Project — News Source Classification - Group 54
 
 Binary classification of news source (NBC vs Fox) from headline text.
 
@@ -51,6 +51,6 @@ python3 run_local_evaluation.py \
   --weights final_model.pt
 ```
 
-## Team
+## Team (Group 54)
 
 Haroun Shah · Qianzhi (Jerry) Zhao · Arvin Krishnan
